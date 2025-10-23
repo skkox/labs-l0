@@ -4,7 +4,7 @@ import "fmt"
 
 func main() {
 	fmt.Println("Сервис заказов L0")
-	fmt.Println("====================")
+	fmt.Println("                  ")
 	fmt.Println("План выполнения:")
 	fmt.Println("1. Настройка PostgreSQL")
 	fmt.Println("2. Создание репозитория")
