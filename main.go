@@ -1,47 +1,64 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/jackc/pgx/v5"
-)
-import (
-    "encoding/json"
-    "github.com/nats-io/stan.go"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-    dbURL := "postgres://orders_user:StrongPassword123@localhost:5432/orders_db"
-    conn, err := pgx.Connect(context.Background(), dbURL)
-    if err != nil {
-        log.Fatalf("Не удалось подключиться к базе: %v", err)
-    }
-    defer conn.Close(context.Background())
-    fmt.Println("Подключение к базе успешно!")
+	log.Println("Запуск сервиса заказов L0...")
 
-    sc, err := stan.Connect("test-cluster", "orders-service-client")
-    if err != nil {
-        log.Fatalf("Не удалось подключиться к NATS Streaming: %v", err)
-    }
-    defer sc.Close()
-    fmt.Println("Подключение к NATS Streaming успешно!")
+	// Параметры подключения
+	dbURL := "postgres://orders_user:StrongPassword123@localhost:5432/orders_db"
+	natsURL := "nats://localhost:4222"
+	clusterID := "test-cluster"
+	clientID := "orders-service"
+	channel := "orders"
 
-    _, err = sc.Subscribe("orders", func(m *stan.Msg) {
-        fmt.Println("Получено сообщение:", string(m.Data))
+	// 1. Подключаемся к PostgreSQL
+	db, err := NewDB(dbURL)
+	if err != nil {
+		log.Fatalf("Ошибка подключения к PostgreSQL: %v", err)
+	}
+	defer db.Close()
 
-        var order map[string]interface{}
-        if err := json.Unmarshal(m.Data, &order); err != nil {
-            log.Println("Ошибка при разборе JSON:", err)
-            return
-        }
+	// 2. Создаем кэш
+	cache := NewOrderCache()
+	log.Println("Кэш создан")
 
-        fmt.Println("Заказ распознан:", order["order_uid"])
-    }, stan.DurableName("orders-durable"))
-    if err != nil {
-        log.Fatalf("Ошибка при подписке на канал: %v", err)
-    }
+	// 3. Восстанавливаем кэш из базы данных
+	log.Println("Восстановление кэша из базы данных...")
+	orders, err := db.GetAllOrders()
+	if err != nil {
+		log.Printf("Предупреждение: не удалось восстановить кэш из БД: %v", err)
+	} else {
+		for _, order := range orders {
+			cache.Set(order.OrderUID, order)
+		}
+		log.Printf("Кэш восстановлен: загружено %d заказов", len(orders))
+	}
 
-    select {}
+	// 4. Подключаемся к NATS Streaming
+	natsClient, err := NewNATSClient(clusterID, clientID, natsURL, db, cache)
+	if err != nil {
+		log.Fatalf("Ошибка подключения к NATS Streaming: %v", err)
+	}
+	defer natsClient.Close()
+
+	// 5. Подписываемся на канал
+	if err := natsClient.Subscribe(channel); err != nil {
+		log.Fatalf("Ошибка подписки на канал '%s': %v", channel, err)
+	}
+
+	log.Println("Сервис успешно запущен и готов к работе!")
+	log.Println("Ожидание сообщений из NATS Streaming...")
+
+	// Ожидаем сигнал завершения (Ctrl+C)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+
+	log.Println("Получен сигнал завершения, останавливаем сервис...")
 }
