@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Order представляет структуру заказа согласно заданию
 type Order struct {
@@ -62,6 +65,7 @@ type Item struct {
 
 // OrderCache представляет кэш заказов в памяти
 type OrderCache struct {
+	mu     sync.RWMutex
 	orders map[string]*Order
 }
 
@@ -74,16 +78,22 @@ func NewOrderCache() *OrderCache {
 
 // Set добавляет заказ в кэш
 func (c *OrderCache) Set(orderUID string, order *Order) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.orders[orderUID] = order
 }
 
 // Get получает заказ из кэша
 func (c *OrderCache) Get(orderUID string) (*Order, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	order, exists := c.orders[orderUID]
 	return order, exists
 }
 
 // GetAll возвращает все заказы из кэша
 func (c *OrderCache) GetAll() map[string]*Order {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.orders
 }
