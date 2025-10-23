@@ -52,7 +52,16 @@ func main() {
 		log.Fatalf("Ошибка подписки на канал '%s': %v", channel, err)
 	}
 
+	// 6. Запускаем HTTP-сервер
+	server := NewServer(cache)
+	go func() {
+		if err := server.Start(":8080"); err != nil {
+			log.Fatalf("Ошибка запуска HTTP-сервера: %v", err)
+		}
+	}()
+
 	log.Println("Сервис успешно запущен и готов к работе!")
+	log.Println("HTTP-сервер: http://localhost:8080")
 	log.Println("Ожидание сообщений из NATS Streaming...")
 
 	// Ожидаем сигнал завершения (Ctrl+C)
