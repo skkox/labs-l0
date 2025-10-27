@@ -69,20 +69,25 @@ func main() {
 }
 
 func ConnectNATS() (stan.Conn, error) {
+	// Создаем уникальный ID клиента на основе времени
 	clientID := fmt.Sprintf("order-service-%d", time.Now().UnixNano())
 
-	sc, err := stan.Connect(
-		"test-cluster",
-		clientID,
-		stan.NatsURL("nats://localhost:4222"),
-		stan.SetConnectionLostHandler(func(_ stan.Conn, reason error) {
-			log.Fatalf("NATS Streaming connection lost: %v", reason)
-		}),
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("ошибка подключения к NATS Streaming: %w", err)
+	// Пробуем подключиться несколько раз
+	var sc stan.Conn
+	var err error
+	for i := 0; i < 3; i++ {
+		sc, err = stan.Connect(
+			"test-cluster",
+			clientID,
+			stan.NatsURL("nats://localhost:4222"),
+		)
+		if err == nil {
+			log.Printf("NATS: успешное подключение с ID: %s", clientID)
+			break
+		}
+		log.Printf("NATS: попытка %d неудачна: %v", i+1, err)
+		time.Sleep(time.Second)
 	}
 
-	return sc, nil
+	return sc, err
 }

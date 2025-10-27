@@ -57,33 +57,3 @@ type Item struct {
 	Brand       string `json:"brand"`
 	Status      int    `json:"status"`
 }
-
-type OrderCache struct {
-	mu     sync.RWMutex
-	orders map[string]*Order
-}
-
-func NewOrderCache() *OrderCache {
-	return &OrderCache{
-		orders: make(map[string]*Order),
-	}
-}
-
-func (c *OrderCache) Set(orderUID string, order *Order) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.orders[orderUID] = order
-}
-
-func (c *OrderCache) Get(orderUID string) (*Order, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	order, exists := c.orders[orderUID]
-	return order, exists
-}
-
-func (c *OrderCache) GetAll() map[string]*Order {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.orders
-}
