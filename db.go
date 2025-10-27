@@ -8,12 +8,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// DB представляет подключение к базе данных
 type DB struct {
 	conn *pgx.Conn
 }
 
-// NewDB создает новое подключение к базе данных
 func NewDB(dbURL string) (*DB, error) {
 	conn, err := pgx.Connect(context.Background(), dbURL)
 	if err != nil {
@@ -22,7 +20,6 @@ func NewDB(dbURL string) (*DB, error) {
 
 	db := &DB{conn: conn}
 	
-	// Проверяем подключение
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("не удалось проверить подключение к базе данных: %w", err)
 	}
@@ -31,188 +28,174 @@ func NewDB(dbURL string) (*DB, error) {
 	return db, nil
 }
 
-// Ping проверяет подключение к базе данных
 func (db *DB) Ping() error {
 	return db.conn.Ping(context.Background())
 }
 
-// Close закрывает подключение к базе данных
 func (db *DB) Close() error {
 	return db.conn.Close(context.Background())
 }
 
-// SaveOrder сохраняет заказ в базе данных
 func (db *DB) SaveOrder(order *Order) error {
-	ctx := context.Background()
-	
-	// Начинаем транзакцию
-	tx, err := db.conn.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("не удалось начать транзакцию: %w", err)
-	}
-	defer tx.Rollback(ctx)
+    ctx := context.Background()
+    
+    // Начинаем транзакцию
+    tx, err := db.conn.Begin(ctx)
+    if err != nil {
+        return fmt.Errorf("ошибка начала транзакции: %w", err)
+    }
+    defer tx.Rollback(ctx)
 
-	// Сохраняем основной заказ
-	query := `
-		INSERT INTO orders (order_uid, track_number, entry, locale, internal_signature, 
-			customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (order_uid) DO UPDATE SET
-			track_number = EXCLUDED.track_number,
-			entry = EXCLUDED.entry,
-			locale = EXCLUDED.locale,
-			internal_signature = EXCLUDED.internal_signature,
-			customer_id = EXCLUDED.customer_id,
-			delivery_service = EXCLUDED.delivery_service,
-			shardkey = EXCLUDED.shardkey,
-			sm_id = EXCLUDED.sm_id,
-			date_created = EXCLUDED.date_created,
-			oof_shard = EXCLUDED.oof_shard
-	`
-	
-	_, err = tx.Exec(ctx, query,
-		order.OrderUID, order.TrackNumber, order.Entry, order.Locale,
-		order.InternalSignature, order.CustomerID, order.DeliveryService,
-		order.Shardkey, order.SMID, order.DateCreated, order.OOFShard)
-	if err != nil {
-		return fmt.Errorf("не удалось сохранить заказ: %w", err)
-	}
+    log.Printf("Сохраняем заказ %s...", order.OrderUID)
 
-	// Сохраняем информацию о доставке
-	deliveryQuery := `
-		INSERT INTO delivery (order_uid, name, phone, zip, city, address, region, email)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (order_uid) DO UPDATE SET
-			name = EXCLUDED.name,
-			phone = EXCLUDED.phone,
-			zip = EXCLUDED.zip,
-			city = EXCLUDED.city,
-			address = EXCLUDED.address,
-			region = EXCLUDED.region,
-			email = EXCLUDED.email
-	`
-	
-	_, err = tx.Exec(ctx, deliveryQuery,
-		order.OrderUID, order.Delivery.Name, order.Delivery.Phone,
-		order.Delivery.Zip, order.Delivery.City, order.Delivery.Address,
-		order.Delivery.Region, order.Delivery.Email)
-	if err != nil {
-		return fmt.Errorf("не удалось сохранить информацию о доставке: %w", err)
-	}
+    _, err = tx.Exec(ctx, `
+        INSERT INTO orders (
+            order_uid, track_number, entry, locale, internal_signature,
+            customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (order_uid) DO UPDATE SET
+            track_number = $2, entry = $3, locale = $4, internal_signature = $5,
+            customer_id = $6, delivery_service = $7, shardkey = $8, sm_id = $9,
+            date_created = $10, oof_shard = $11`,
+        order.OrderUID, order.TrackNumber, order.Entry, order.Locale,
+        order.InternalSignature, order.CustomerID, order.DeliveryService,
+        order.Shardkey, order.SMID, order.DateCreated, order.OOFShard)
+    if err != nil {
+        return fmt.Errorf("ошибка сохранения заказа: %w", err)
+    }
+    log.Printf("Основная информация о заказе сохранена")
 
-	// Сохраняем информацию об оплате
-	paymentQuery := `
-		INSERT INTO payment (order_uid, transaction, request_id, currency, provider,
-			amount, payment_dt, bank, delivery_cost, goods_total, custom_fee)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (order_uid) DO UPDATE SET
-			transaction = EXCLUDED.transaction,
-			request_id = EXCLUDED.request_id,
-			currency = EXCLUDED.currency,
-			provider = EXCLUDED.provider,
-			amount = EXCLUDED.amount,
-			payment_dt = EXCLUDED.payment_dt,
-			bank = EXCLUDED.bank,
-			delivery_cost = EXCLUDED.delivery_cost,
-			goods_total = EXCLUDED.goods_total,
-			custom_fee = EXCLUDED.custom_fee
-	`
-	
-	_, err = tx.Exec(ctx, paymentQuery,
-		order.OrderUID, order.Payment.Transaction, order.Payment.RequestID,
-		order.Payment.Currency, order.Payment.Provider, order.Payment.Amount,
-		order.Payment.PaymentDt, order.Payment.Bank, order.Payment.DeliveryCost,
-		order.Payment.GoodsTotal, order.Payment.CustomFee)
-	if err != nil {
-		return fmt.Errorf("не удалось сохранить информацию об оплате: %w", err)
-	}
+    _, err = tx.Exec(ctx, `
+        INSERT INTO delivery (
+            order_uid, name, phone, zip, city, address, region, email
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (order_uid) DO UPDATE SET
+            name = $2, phone = $3, zip = $4, city = $5,
+            address = $6, region = $7, email = $8`,
+        order.OrderUID, order.Delivery.Name, order.Delivery.Phone,
+        order.Delivery.Zip, order.Delivery.City, order.Delivery.Address,
+        order.Delivery.Region, order.Delivery.Email)
+    if err != nil {
+        return fmt.Errorf("ошибка сохранения информации о доставке: %w", err)
+    }
+    log.Printf("Информация о доставке сохранена")
 
-	// Удаляем старые товары
-	_, err = tx.Exec(ctx, "DELETE FROM items WHERE order_uid = $1", order.OrderUID)
-	if err != nil {
-		return fmt.Errorf("не удалось удалить старые товары: %w", err)
-	}
+    _, err = tx.Exec(ctx, `
+        INSERT INTO payment (
+            order_uid, request_id, currency, provider, amount,
+            payment_dt, bank, delivery_cost, goods_total, custom_fee
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (order_uid) DO UPDATE SET
+            request_id = $2, currency = $3, provider = $4, amount = $5,
+            payment_dt = $6, bank = $7, delivery_cost = $8, goods_total = $9,
+            custom_fee = $10`,
+        order.OrderUID, order.Payment.RequestID, order.Payment.Currency,
+        order.Payment.Provider, order.Payment.Amount, order.Payment.PaymentDt,
+        order.Payment.Bank, order.Payment.DeliveryCost, order.Payment.GoodsTotal,
+        order.Payment.CustomFee)
+    if err != nil {
+        return fmt.Errorf("ошибка сохранения информации об оплате: %w", err)
+    }
+    log.Printf("Информация об оплате сохранена")
 
-	// Сохраняем товары
-	for _, item := range order.Items {
-		itemQuery := `
-			INSERT INTO items (order_uid, chrt_id, track_number, price, rid, name,
-				sale, size, total_price, nm_id, brand, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		`
-		
-		_, err = tx.Exec(ctx, itemQuery,
-			order.OrderUID, item.ChrtID, item.TrackNumber, item.Price,
-			item.RID, item.Name, item.Sale, item.Size, item.TotalPrice,
-			item.NMID, item.Brand, item.Status)
-		if err != nil {
-			return fmt.Errorf("не удалось сохранить товар: %w", err)
-		}
-	}
+    _, err = tx.Exec(ctx, `DELETE FROM items WHERE order_uid = $1`, order.OrderUID)
+    if err != nil {
+        return fmt.Errorf("ошибка удаления старых товаров: %w", err)
+    }
 
-	// Подтверждаем транзакцию
-	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("не удалось подтвердить транзакцию: %w", err)
-	}
+    for _, item := range order.Items {
+        _, err = tx.Exec(ctx, `
+            INSERT INTO items (
+                order_uid, chrt_id, track_number, price, rid,
+                name, sale, size, total_price, nm_id, brand, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            order.OrderUID, item.ChrtID, item.TrackNumber, item.Price,
+            item.RID, item.Name, item.Sale, item.Size, item.TotalPrice,
+            item.NMID, item.Brand, item.Status)
+        if err != nil {
+            return fmt.Errorf("ошибка сохранения товара: %w", err)
+        }
+    }
+    log.Printf("Сохранено %d товаров", len(order.Items))
 
-	log.Printf("Заказ %s успешно сохранен в базе данных", order.OrderUID)
-	return nil
+    // Подтверждаем транзакцию
+    if err = tx.Commit(ctx); err != nil {
+        return fmt.Errorf("ошибка подтверждения транзакции: %w", err)
+    }
+    log.Printf("Заказ %s успешно сохранен в БД", order.OrderUID)
+    return nil
 }
 
-// GetOrder получает заказ по ID
 func (db *DB) GetOrder(orderUID string) (*Order, error) {
-	ctx := context.Background()
-	
-	// Получаем основной заказ
-	orderQuery := `
-		SELECT order_uid, track_number, entry, locale, internal_signature,
-			customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard
-		FROM orders WHERE order_uid = $1
-	`
-	
-	var order Order
-	err := db.conn.QueryRow(ctx, orderQuery, orderUID).Scan(
-		&order.OrderUID, &order.TrackNumber, &order.Entry, &order.Locale,
-		&order.InternalSignature, &order.CustomerID, &order.DeliveryService,
-		&order.Shardkey, &order.SMID, &order.DateCreated, &order.OOFShard)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("заказ с ID %s не найден", orderUID)
-		}
-		return nil, fmt.Errorf("ошибка при получении заказа: %w", err)
-	}
+    ctx := context.Background()
+    
+    var exists bool
+    err := db.conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM orders WHERE order_uid = $1)", orderUID).Scan(&exists)
+    if err != nil {
+        return nil, fmt.Errorf("ошибка проверки существования заказа: %w", err)
+    }
+    
+    if !exists {
+        log.Printf("Заказ с ID %s не существует в таблице orders", orderUID)
+        return nil, fmt.Errorf("заказ с ID %s не найден", orderUID)
+    }
+    
+    log.Printf("Заказ %s существует в базе, продолжаем загрузку...", orderUID)
 
-	// Получаем информацию о доставке
-	deliveryQuery := `
-		SELECT name, phone, zip, city, address, region, email
-		FROM delivery WHERE order_uid = $1
-	`
-	
-	err = db.conn.QueryRow(ctx, deliveryQuery, orderUID).Scan(
-		&order.Delivery.Name, &order.Delivery.Phone, &order.Delivery.Zip,
-		&order.Delivery.City, &order.Delivery.Address, &order.Delivery.Region,
-		&order.Delivery.Email)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка при получении информации о доставке: %w", err)
-	}
+    orderQuery := `
+        SELECT order_uid, track_number, entry, locale, internal_signature,
+            customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard
+        FROM orders WHERE order_uid = $1
+    `
+    
+    var order Order
+    err = db.conn.QueryRow(ctx, orderQuery, orderUID).Scan(
+        &order.OrderUID, &order.TrackNumber, &order.Entry, &order.Locale,
+        &order.InternalSignature, &order.CustomerID, &order.DeliveryService,
+        &order.Shardkey, &order.SMID, &order.DateCreated, &order.OOFShard)
+    if err != nil {
+        return nil, fmt.Errorf("ошибка при получении заказа: %w", err)
+    }
 
-	// Получаем информацию об оплате
-	paymentQuery := `
-		SELECT transaction, request_id, currency, provider, amount, payment_dt,
-			bank, delivery_cost, goods_total, custom_fee
-		FROM payment WHERE order_uid = $1
-	`
-	
-	err = db.conn.QueryRow(ctx, paymentQuery, orderUID).Scan(
-		&order.Payment.Transaction, &order.Payment.RequestID, &order.Payment.Currency,
-		&order.Payment.Provider, &order.Payment.Amount, &order.Payment.PaymentDt,
-		&order.Payment.Bank, &order.Payment.DeliveryCost, &order.Payment.GoodsTotal,
-		&order.Payment.CustomFee)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка при получении информации об оплате: %w", err)
-	}
+    var paymentExists bool
+    err = db.conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM payment WHERE order_uid = $1)", orderUID).Scan(&paymentExists)
+    if err != nil {
+        return nil, fmt.Errorf("ошибка проверки payment: %w", err)
+    }
+    log.Printf("Запись в payment для заказа %s: %v", orderUID, paymentExists)
 
-	// Получаем товары
+    deliveryQuery := `
+        SELECT name, phone, zip, city, address, region, email
+        FROM delivery WHERE order_uid = $1
+    `
+    
+    err = db.conn.QueryRow(ctx, deliveryQuery, orderUID).Scan(
+        &order.Delivery.Name, &order.Delivery.Phone, &order.Delivery.Zip,
+        &order.Delivery.City, &order.Delivery.Address, &order.Delivery.Region,
+        &order.Delivery.Email)
+    if err != nil {
+        return nil, fmt.Errorf("ошибка при получении информации о доставке: %w", err)
+    }
+
+    paymentQuery := `
+        SELECT request_id, currency, provider, amount, payment_dt,
+            bank, delivery_cost, goods_total, custom_fee
+        FROM payment WHERE order_uid = $1
+    `
+    
+    err = db.conn.QueryRow(ctx, paymentQuery, orderUID).Scan(
+        &order.Payment.RequestID, &order.Payment.Currency,
+        &order.Payment.Provider, &order.Payment.Amount, &order.Payment.PaymentDt,
+        &order.Payment.Bank, &order.Payment.DeliveryCost, &order.Payment.GoodsTotal,
+        &order.Payment.CustomFee)
+    if err != nil {
+        if err == pgx.ErrNoRows {
+            log.Printf("Информация об оплате для заказа %s не найдена, используем пустые значения", orderUID)
+        } else {
+            return nil, fmt.Errorf("ошибка при получении информации об оплате: %w", err)
+        }
+    }
+
 	itemsQuery := `
 		SELECT chrt_id, track_number, price, rid, name, sale, size,
 			total_price, nm_id, brand, status
@@ -242,11 +225,9 @@ func (db *DB) GetOrder(orderUID string) (*Order, error) {
 	return &order, nil
 }
 
-// GetAllOrders получает все заказы из базы данных
 func (db *DB) GetAllOrders() ([]*Order, error) {
 	ctx := context.Background()
 	
-	// Получаем все order_uid
 	query := "SELECT order_uid FROM orders ORDER BY date_created DESC"
 	rows, err := db.conn.Query(ctx, query)
 	if err != nil {
