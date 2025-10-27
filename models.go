@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Order представляет структуру заказа согласно заданию
 type Order struct {
 	OrderUID          string    `json:"order_uid"`
 	TrackNumber       string    `json:"track_number"`
@@ -23,7 +22,6 @@ type Order struct {
 	OOFShard          string    `json:"oof_shard"`
 }
 
-// Delivery представляет информацию о доставке
 type Delivery struct {
 	Name    string `json:"name"`
 	Phone   string `json:"phone"`
@@ -34,9 +32,7 @@ type Delivery struct {
 	Email   string `json:"email"`
 }
 
-// Payment представляет информацию об оплате
 type Payment struct {
-	Transaction  string `json:"transaction"`
 	RequestID    string `json:"request_id"`
 	Currency     string `json:"currency"`
 	Provider     string `json:"provider"`
@@ -48,7 +44,6 @@ type Payment struct {
 	CustomFee    int    `json:"custom_fee"`
 }
 
-// Item представляет товар в заказе
 type Item struct {
 	ChrtID      int    `json:"chrt_id"`
 	TrackNumber string `json:"track_number"`
@@ -63,27 +58,23 @@ type Item struct {
 	Status      int    `json:"status"`
 }
 
-// OrderCache представляет кэш заказов в памяти
 type OrderCache struct {
 	mu     sync.RWMutex
 	orders map[string]*Order
 }
 
-// NewOrderCache создает новый кэш заказов
 func NewOrderCache() *OrderCache {
 	return &OrderCache{
 		orders: make(map[string]*Order),
 	}
 }
 
-// Set добавляет заказ в кэш
 func (c *OrderCache) Set(orderUID string, order *Order) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.orders[orderUID] = order
 }
 
-// Get получает заказ из кэша
 func (c *OrderCache) Get(orderUID string) (*Order, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -91,7 +82,6 @@ func (c *OrderCache) Get(orderUID string) (*Order, bool) {
 	return order, exists
 }
 
-// GetAll возвращает все заказы из кэша
 func (c *OrderCache) GetAll() map[string]*Order {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
