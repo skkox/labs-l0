@@ -8,13 +8,11 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// Server представляет HTTP-сервер
 type Server struct {
 	cache  *OrderCache
 	router *mux.Router
 }
 
-// NewServer создает новый HTTP-сервер
 func NewServer(cache *OrderCache) *Server {
 	s := &Server{
 		cache:  cache,
@@ -24,13 +22,11 @@ func NewServer(cache *OrderCache) *Server {
 	return s
 }
 
-// routes настраивает маршруты
 func (s *Server) routes() {
 	s.router.HandleFunc("/", s.handleIndex()).Methods("GET")
 	s.router.HandleFunc("/api/order/{id}", s.handleGetOrder()).Methods("GET")
 }
 
-// handleIndex отображает главную страницу
 func (s *Server) handleIndex() http.HandlerFunc {
 	tmpl := `
 <!DOCTYPE html>
@@ -285,7 +281,6 @@ func (s *Server) handleIndex() http.HandlerFunc {
 	}
 }
 
-// handleGetOrder возвращает заказ по ID из кэша
 func (s *Server) handleGetOrder() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
@@ -302,7 +297,6 @@ func (s *Server) handleGetOrder() http.HandlerFunc {
 	}
 }
 
-// Start запускает HTTP-сервер
 func (s *Server) Start(addr string) error {
 	log.Printf("HTTP-сервер запущен на %s", addr)
 	return http.ListenAndServe(addr, s.router)
